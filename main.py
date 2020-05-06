@@ -25,13 +25,14 @@ import sys
 import time
 import socket
 import json
+import numpy as np
 import cv2
 
 import logging as log
 import paho.mqtt.client as mqtt
 
 from argparse import ArgumentParser
-from inference import Network
+from inference import Network, preprocess_image, draw_bboxes
 
 # MQTT server environment variables
 HOSTNAME = socket.gethostname()
@@ -62,15 +63,16 @@ def build_argparser():
                              "CPU, GPU, FPGA or MYRIAD is acceptable. Sample "
                              "will look for a suitable plugin for device "
                              "specified (CPU by default)")
-    parser.add_argument("-pt", "--prob_threshold", type=float, default=0.5,
+    parser.add_argument("-pt", "--prob_threshold", type=float, default=0.3,
                         help="Probability threshold for detections filtering"
-                        "(0.5 by default)")
+                        "(0.3 by default)")
     return parser
 
 
 def connect_mqtt():
-    ### TODO: Connect to the MQTT client ###
-    client = None
+    ### Connect to the MQTT client ###
+    client = mqtt.Client()
+    client.connect(MQTT_HOST, MQTT_PORT, MQTT_KEEPALIVE_INTERVAL)
 
     return client
 
@@ -85,36 +87,91 @@ def infer_on_stream(args, client):
     :return: None
     """
     # Initialise the class
-    infer_network = Network()
+    infer_network = Network(args.model[:-4], args.device)
     # Set Probability threshold for detections
     prob_threshold = args.prob_threshold
 
-    ### TODO: Load the model through `infer_network` ###
+    ### Load the model through `infer_network` ###
+    infer_network.load_model()
 
-    ### TODO: Handle the input stream ###
+    ### Handle the input stream ###
+    vc = cv2.VideoCapture(args.input)
+    if not vc.isOpened():
+        print(f"Error opening input file (video or image {args.input})")
+        exit(1)
 
-    ### TODO: Loop until stream is over ###
+    ### Read from the video capture ###
+    got_frame, frame = vc.read()
 
-        ### TODO: Read from the video capture ###
+    ### Initialize for stats calculation ###
+    last_detections = None
+    start_frame = None
+    total_count = 0
 
-        ### TODO: Pre-process the image as needed ###
+    ### Loop until stream is over ###
+    while got_frame:
 
-        ### TODO: Start asynchronous inference for specified request ###
+        ### Pre-process the image as needed ###
+        image, normalization_consts = preprocess_image(frame, width=640, height=640, preserve_aspect_ratio=True)
+        batch = image[np.newaxis, :, :, :]
 
-        ### TODO: Wait for the result ###
+        ### Start asynchronous inference for specified request ###
+        infer_request_handle = infer_network.async_exec_net(batch)
 
-            ### TODO: Get the results of the inference request ###
+        ### Wait for the result ###
+        detections_arr = infer_network.async_wait(infer_request_handle)
 
-            ### TODO: Extract any desired stats from the results ###
+        ### Get the results of the inference request ###
+        detections = infer_network.get_output(detections_arr,
+                                              threshold=prob_threshold,
+                                              whitelist_filter=[1],
+                                              normalization_consts=normalization_consts)
 
-            ### TODO: Calculate and send relevant information on ###
-            ### current_count, total_count and duration to the MQTT server ###
-            ### Topic "person": keys of "count" and "total" ###
-            ### Topic "person/duration": key of "duration" ###
+        ### Extract any desired stats from the results ###
+        ### Calculate and send relevant information on ###
+        #TODO improve, use bbox to identify if it is the same person and support multiple people, currently should work for assignment
+        current_count = detections['num_detections']
+        if current_count > 0 and last_detections:
+            if last_detections['num_detections'] > 0:
+                duration = (vc.get(cv2.CAP_PROP_POS_MSEC) - start_frame) / 1000.0
+            else:
+                total_count += current_count
+                duration = 0
+                start_frame = vc.get(cv2.CAP_PROP_POS_MSEC)
+        else:
+            duration = 0
 
-        ### TODO: Send the frame to the FFMPEG server ###
+        last_detections = detections
 
-        ### TODO: Write an output image if `single_image_mode` ###
+        ### current_count, total_count and duration to the MQTT server ###
+        ### Topic "person": keys of "count" and "total" ###
+        client.publish("person", json.dumps({"count": current_count,
+                                             "total": total_count}))
+        ### Topic "person/duration": key of "duration" ###
+        client.publish("person/duration", json.dumps({"duration": duration}))
+
+        ### Draw bounding boxes to provide intuition ###
+        img = draw_bboxes(frame, detections)
+        cv2.putText(img,
+            f'current: {current_count} total: {total_count} duration: {duration}',
+            (0, 100),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            .5,
+            (255,255,255),
+            2,
+            cv2.LINE_AA)
+
+        ## Send the frame to the FFMPEG server ###
+        sys.stdout.buffer.write(img)
+        sys.stdout.flush()
+
+        ### Write an output image if `single_image_mode` ###
+        if vc.get(cv2.CAP_PROP_FRAME_COUNT) == 1.0:
+            cv2.imwrite('ov_od.png', img)
+
+        ### Read from the video capture ###
+        got_frame, frame = vc.read()
+    vc.release()
 
 
 def main():

@@ -205,7 +205,7 @@ or pull the image `docker pull shortcipher3/people_counter`
 
 Then run:
 ```
-docker run --rm -ti -p 3000-3004 shortcipher3/people_counter
+docker run --rm -ti -p 3000-3004:3000-3004 shortcipher3/people_counter
 ```
 
 Finally in a browser navigate to http://0.0.0.0:3000

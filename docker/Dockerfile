@@ -76,3 +76,5 @@ RUN cd $WORKSPACE/webservice/server \
   && npm install \
   && npm install mosca
 
+CMD /workspace/run_demo.sh
+

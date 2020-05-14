@@ -193,3 +193,19 @@ class chatroom ended up simplifying my logic to just count one person at a time 
 of tracking.  Depending on the end use case these simplifying assumptions may need to be
 revisited, I left a TODO for that and I saw some weird results when testing batch mode which I
 left a TODO in the code for.
+
+## Duplicating my result
+
+Build the docker image with:
+```
+docker build -t shortcipher3/people_counter -f nd131-openvino-fundamentals-project-starter/docker/Dockerfile --build-arg DOWNLOAD_LINK={DOWNLOAD_LINK} .
+```
+
+or pull the image `docker pull shortcipher3/people_counter`
+
+Then run:
+```
+docker run --rm -ti -p 3000-3004:3000-3004 shortcipher3/people_counter
+```
+
+Finally in a browser navigate to http://0.0.0.0:3000

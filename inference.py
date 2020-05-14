@@ -189,7 +189,7 @@ def preprocess_image(image, width: int=640, height: int=640, preserve_aspect_rat
 def draw_bboxes(image, detections):
     img = image.copy()
     for i in range(detections['batch'].shape[0]):
-        #classId = int(detections['class'][i])
+        classId = int(detections['class'][i])
         score = float(detections['score'][i])
         bbox = [float(v) for v in detections['bbox'][i]]
         if score > 0.3:

@@ -38,6 +38,7 @@ people, they could be COVID-19 risks (would use the Flir Lepton 2.5 with Purethe
 
 * Customizable batch shape - this didn't seem to impact performance on CPU
 * FP16 IR - this didn't have as big of an impact on latency as I anticipated
+* Dockerized my application, used python3, used the latest OpenVINO (version 2020.2)
 
 ## Choosing a Model and the Model Optimizer
 
@@ -95,13 +96,10 @@ layers
 
 ## Comparing Model Performance
 
-My method(s) to compare models before and after conversion to Intermediate Representations
-were...
-
-The difference between model accuracy pre- and post-conversion was...
-
-
-### The size of the model pre- and post-conversion was:
+I compared the model size before and after conversion to the Intermediate Representation, and I
+also compared the inference time using the Tensorflow framework for both the saved model
+representation as well as the frozen inference graph representation. My results are tabulated
+below:
 
 Model Type                | Model Size | Inference Time (single) | Avg Inf Time (batch) | Load Time
 --------------------------|------------|-------------------------|----------------------|------------
@@ -110,11 +108,15 @@ saved_model.pb            | 129 MB     | 1.3 seconds             | 1.4 seconds  
 FP32 OpenVINO IR          | 200 MB     | 1.5 seconds             | 1.5 seconds          | 1.5 seconds
 FP16 OpenVINO IR          | 100 MB     | 1.4 seconds             | 1.4 seconds          | 1.9 seconds
 
+The model size increased for the intermediate representation model from the original, that doesn't
+concern me, I am familiar with optimizations that increase the model size to perform more efficient
+inference by for example running a batch of images through at once.
+
 I'm a little surprised that OpenVINO's performance is just on par with tensorflow's performance on
-a cpu.  I would still expect it to be better on MYRIAD, GPU, or FPGA.
+a cpu.
 
 Based on the timing my model will not be running in real-time on my CPU for this project, it will be
-running offline.  Some applications may require real-time, in which case different hardware or a
+running offline.  Some applications may require real-time, in which case different hardware and/or a
 different model should be explored.
 
 ## Assess Model Use Cases
@@ -194,18 +196,56 @@ of tracking.  Depending on the end use case these simplifying assumptions may ne
 revisited, I left a TODO for that and I saw some weird results when testing batch mode which I
 left a TODO in the code for.
 
+My duration logic is now based on this post:
+https://knowledge.udacity.com/questions/156375
+and this post:
+https://knowledge.udacity.com/questions/146607
+
+My previous logic updated frame by frame to indicate the duration in video time that the current
+person had been caught on camera. The new version provides the duration that the last person to
+leave was caught on camera.
+
 ## Duplicating my result
 
-Build the docker image with:
+### With docker
+
+Run
+```
+docker run --rm -ti -p 3000-3004:3000-3004 shortcipher3/people_counter
+```
+
+Finally in a browser navigate to http://0.0.0.0:3000
+
+Note:
+To build the docker container yourself run:
 ```
 docker build -t shortcipher3/people_counter -f nd131-openvino-fundamentals-project-starter/docker/Dockerfile --build-arg DOWNLOAD_LINK={DOWNLOAD_LINK} .
 ```
 
-or pull the image `docker pull shortcipher3/people_counter`
+### Without Docker
 
-Then run:
+There are four executables that need to be running, you can background the executables so they all
+run in one terminal, but that makes cleanup a little messier, so instead I recommend opening four
+terminals (or panes if you use tmux) and running:
+
 ```
-docker run --rm -ti -p 3000-3004:3000-3004 shortcipher3/people_counter
+# terminal 1
+git clone git@github.com:shortcipher3/nd131-openvino-fundamentals-project-starter.git
+cd nd131-openvino-fundamentals-project-starter/webservice/server/node-server
+node ./server.js
+
+# terminal 2
+cd nd131-openvino-fundamentals-project-starter/webservice/ui
+npm run dev
+
+# terminal 3
+cd nd131-openvino-fundamentals-project-starter
+ffserver -f ./ffmpeg/server.conf
+
+# terminal 4
+sleep 30 # give the servers time to set up
+cd nd131-openvino-fundamentals-project-starter
+python3 main.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m FP32/frozen_inference_graph.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.3 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
 ```
 
 Finally in a browser navigate to http://0.0.0.0:3000

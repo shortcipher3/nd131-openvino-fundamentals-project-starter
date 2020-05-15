@@ -20,7 +20,6 @@
 """
 
 
-import os
 import sys
 import time
 import socket
@@ -28,7 +27,7 @@ import json
 import numpy as np
 import cv2
 
-import logging as log
+import logging
 import paho.mqtt.client as mqtt
 
 from argparse import ArgumentParser
@@ -97,15 +96,15 @@ def infer_on_stream(args, client):
     ### Handle the input stream ###
     vc = cv2.VideoCapture(args.input)
     if not vc.isOpened():
-        print(f"Error opening input file (video or image {args.input})")
+        logging.error(f"Error opening input file (video or image {args.input})")
         exit(1)
 
     ### Read from the video capture ###
     got_frame, frame = vc.read()
 
     ### Initialize for stats calculation ###
-    last_detections = None
-    start_frame = None
+    #last_detections = None
+    last_count = 0
     total_count = 0
 
     ### Loop until stream is over ###
@@ -131,29 +130,27 @@ def infer_on_stream(args, client):
         ### Calculate and send relevant information on ###
         #TODO improve, use bbox to identify if it is the same person and support multiple people, currently should work for assignment
         current_count = detections['num_detections']
-        if current_count > 0 and last_detections:
-            if last_detections['num_detections'] > 0:
-                duration = (vc.get(cv2.CAP_PROP_POS_MSEC) - start_frame) / 1000.0
-            else:
-                total_count += current_count
-                duration = 0
-                start_frame = vc.get(cv2.CAP_PROP_POS_MSEC)
-        else:
-            duration = 0
+        if current_count > last_count and last_count == 0:
+            start_time = vc.get(cv2.CAP_PROP_POS_MSEC)
+            total_count = total_count + current_count - last_count
+        if current_count < last_count and current_count == 0:
+            # Person duration in the video is calculated
+            duration = int((vc.get(cv2.CAP_PROP_POS_MSEC) - start_time) / 1000.0)
+            # Publish messages to the MQTT server
+            client.publish("person/duration",
+                           json.dumps({"duration": duration}))
 
-        last_detections = detections
+        last_count = current_count
 
         ### current_count, total_count and duration to the MQTT server ###
         ### Topic "person": keys of "count" and "total" ###
         client.publish("person", json.dumps({"count": current_count,
                                              "total": total_count}))
-        ### Topic "person/duration": key of "duration" ###
-        client.publish("person/duration", json.dumps({"duration": duration}))
 
         ### Draw bounding boxes to provide intuition ###
         img = draw_bboxes(frame, detections)
         cv2.putText(img,
-            f'current: {current_count} total: {total_count} duration: {duration}',
+            f'current: {current_count} total: {total_count}',
             (0, 100),
             cv2.FONT_HERSHEY_SIMPLEX,
             .5,
